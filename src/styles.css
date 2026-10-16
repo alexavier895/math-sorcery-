@@ -1,0 +1,131 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Fraunces", "Iowan Old Style", Palatino, serif;
+  --font-sans: "Outfit", "Avenir Next", system-ui, sans-serif;
+  --color-ink: #0e0f0c;
+  --color-board: #171910;
+  --color-board-2: #1e2116;
+  --color-chalk: #efe7d2;
+  --color-dust: #a39b82;
+  --color-line: #34362b;
+  --color-cursed: #2fcaa8;
+  --color-cursed-ink: #0e2a24;
+  --color-seal: #d64545;
+  --color-seal-ink: #2a1212;
+  --color-seal-chalk: #f3d2d0;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html,
+  body {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(900px 480px at 50% -12%, #22281c 0%, transparent 58%),
+      var(--color-ink);
+    color: var(--color-chalk);
+    font-family: var(--font-sans);
+    font-weight: 380;
+    line-height: 1.45;
+  }
+
+  ::selection {
+    background: var(--color-cursed);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-cursed);
+    outline-offset: 2px;
+  }
+}
+
+.plate {
+  position: relative;
+  background: var(--color-board);
+  border: 1px solid var(--color-line);
+}
+
+.plate::before,
+.plate::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  pointer-events: none;
+  border-color: color-mix(in srgb, var(--color-dust) 80%, transparent);
+  border-style: solid;
+}
+
+.plate::before {
+  top: 6px;
+  left: 6px;
+  border-width: 1px 0 0 1px;
+}
+
+.plate::after {
+  right: 6px;
+  bottom: 6px;
+  border-width: 0 1px 1px 0;
+}
+
+.btn {
+  min-height: 44px;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--color-line);
+  background: var(--color-board-2);
+  color: var(--color-chalk);
+  font: 600 0.92rem/1.2 var(--font-sans);
+  letter-spacing: 0.01em;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--color-dust);
+}
+
+.btn:disabled {
+  opacity: 0.42;
+}
+
+.btn-primary {
+  background: var(--color-cursed-ink);
+  border-color: var(--color-cursed);
+  color: var(--color-cursed);
+}
+
+.btn-seal {
+  background: var(--color-seal-ink);
+  border-color: var(--color-seal);
+  color: var(--color-seal-chalk);
+}
+
+.fight-btn {
+  min-width: 4.5rem;
+  min-height: 48px;
+  flex: 1 1 5.2rem;
+  padding: 0.35rem 0.4rem;
+  text-align: left;
+}
+
+.kicker {
+  color: var(--color-dust);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drift {
+    animation: none !important;
+  }
+}
