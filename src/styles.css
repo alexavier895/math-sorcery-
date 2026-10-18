@@ -114,6 +114,30 @@
   flex: 1 1 5.2rem;
   padding: 0.35rem 0.4rem;
   text-align: left;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.move-btn {
+  min-width: 4.75rem;
+  min-height: 52px;
+  flex: 1 1 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.move-btn:active {
+  border-color: var(--color-cursed);
+  background: var(--color-cursed-ink);
+  color: var(--color-cursed);
+}
+
+.fight-root {
+  touch-action: none;
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
 }
 
 .kicker {

@@ -15,6 +15,28 @@ import {
 } from "@/game/fight";
 import { maxHpFor, type Report, type Save } from "@/game/save";
 
+type MoveKey = "forward" | "back" | "jump" | "dodge";
+
+type Held = Record<MoveKey, boolean>;
+
+const BLANK: Held = { forward: false, back: false, jump: false, dodge: false };
+
+function blankHeld(): Held {
+  return { ...BLANK };
+}
+
+declare global {
+  interface Window {
+    __controlsTest?: {
+      getActions: () => Record<string, number | boolean>;
+      getPlayerPosition: () => { x: number; y: number };
+      getSpeed: () => number;
+      setActions: (actions: Record<string, number | boolean>) => void;
+      reset: () => void;
+    };
+  }
+}
+
 export function FightView({
   save,
   zoneId,
@@ -30,11 +52,26 @@ export function FightView({
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const fightRef = useRef<Fight | null>(null);
-  const inputRef = useRef<InputState>({ left: false, right: false, jump: false, dash: false, queue: [] });
+  const inputRef = useRef<InputState>({ forward: false, back: false, jump: false, dodge: false, queue: [] });
+  const keyRef = useRef<Held>(blankHeld());
+  const injectRef = useRef<Held>(blankHeld());
+  const pointersRef = useRef<Map<number, MoveKey>>(new Map());
+  const syncRef = useRef<() => void>(() => {});
   const pausedRef = useRef(false);
   const finished = useRef(false);
   const [tick, setTick] = useState(0);
   const [paused, setPaused] = useState(false);
+
+  syncRef.current = () => {
+    const fromPointers = blankHeld();
+    for (const action of pointersRef.current.values()) fromPointers[action] = true;
+    const sources = [fromPointers, keyRef.current, injectRef.current];
+    const input = inputRef.current;
+    input.forward = sources.some((s) => s.forward);
+    input.back = sources.some((s) => s.back);
+    input.jump = sources.some((s) => s.jump);
+    input.dodge = sources.some((s) => s.dodge);
+  };
 
   useEffect(() => {
     const zone = zoneId ? zoneById(zoneId) : undefined;
@@ -95,22 +132,32 @@ export function FightView({
   }, []);
 
   useEffect(() => {
+    const codes = new Set<string>();
+    const pullKeys = () => {
+      keyRef.current = {
+        back: codes.has("KeyA") || codes.has("ArrowLeft"),
+        forward: codes.has("KeyD") || codes.has("ArrowRight"),
+        jump: codes.has("KeyW") || codes.has("ArrowUp") || codes.has("Space"),
+        dodge: codes.has("ShiftLeft") || codes.has("ShiftRight"),
+      };
+      syncRef.current();
+    };
     const down = (e: KeyboardEvent) => {
       if (e.repeat) return;
-      const map: Record<string, () => void> = {
-        KeyA: () => (inputRef.current.left = true),
-        ArrowLeft: () => (inputRef.current.left = true),
-        KeyD: () => (inputRef.current.right = true),
-        ArrowRight: () => (inputRef.current.right = true),
-        KeyW: () => (inputRef.current.jump = true),
-        ArrowUp: () => (inputRef.current.jump = true),
-        Space: () => (inputRef.current.jump = true),
-        ShiftLeft: () => (inputRef.current.dash = true),
-        ShiftRight: () => (inputRef.current.dash = true),
-      };
-      if (map[e.code]) {
+      const move =
+        e.code === "KeyA" ||
+        e.code === "ArrowLeft" ||
+        e.code === "KeyD" ||
+        e.code === "ArrowRight" ||
+        e.code === "KeyW" ||
+        e.code === "ArrowUp" ||
+        e.code === "Space" ||
+        e.code === "ShiftLeft" ||
+        e.code === "ShiftRight";
+      if (move) {
         e.preventDefault();
-        map[e.code]!();
+        codes.add(e.code);
+        pullKeys();
         return;
       }
       const act: Record<string, string> = {
@@ -141,16 +188,75 @@ export function FightView({
       }
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code === "KeyA" || e.code === "ArrowLeft") inputRef.current.left = false;
-      if (e.code === "KeyD" || e.code === "ArrowRight") inputRef.current.right = false;
-      if (e.code === "KeyW" || e.code === "ArrowUp" || e.code === "Space") inputRef.current.jump = false;
-      if (e.code === "ShiftLeft" || e.code === "ShiftRight") inputRef.current.dash = false;
+      if (!codes.has(e.code)) return;
+      codes.delete(e.code);
+      pullKeys();
+    };
+    const dropLive = () => {
+      codes.clear();
+      pointersRef.current.clear();
+      keyRef.current = blankHeld();
+      syncRef.current();
+    };
+    const onVis = () => {
+      if (document.hidden) dropLive();
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
+    window.addEventListener("blur", dropLive);
+    document.addEventListener("visibilitychange", onVis);
+    const endPointer = (e: PointerEvent) => {
+      if (!pointersRef.current.has(e.pointerId)) return;
+      pointersRef.current.delete(e.pointerId);
+      syncRef.current();
+    };
+    window.addEventListener("pointerup", endPointer);
+    window.addEventListener("pointercancel", endPointer);
+    if (import.meta.env.DEV) {
+      window.__controlsTest = {
+        getActions: () => {
+          const i = inputRef.current;
+          const f = fightRef.current;
+          const face = f && f.enemy.x >= f.player.x ? 1 : -1;
+          return {
+            forward: i.forward,
+            back: i.back,
+            jump: i.jump,
+            dodge: i.dodge,
+            moveX: (i.forward ? face : 0) + (i.back ? -face : 0),
+          };
+        },
+        getPlayerPosition: () => {
+          const p = fightRef.current?.player;
+          return { x: p?.x ?? 0, y: p?.y ?? 0 };
+        },
+        getSpeed: () => Math.abs(fightRef.current?.player.vx ?? 0),
+        setActions: (actions) => {
+          injectRef.current = {
+            forward: !!actions.forward,
+            back: !!actions.back,
+            jump: !!actions.jump,
+            dodge: !!actions.dodge,
+          };
+          syncRef.current();
+        },
+        reset: () => {
+          codes.clear();
+          pointersRef.current.clear();
+          keyRef.current = blankHeld();
+          injectRef.current = blankHeld();
+          syncRef.current();
+        },
+      };
+    }
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("blur", dropLive);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pointerup", endPointer);
+      window.removeEventListener("pointercancel", endPointer);
+      if (import.meta.env.DEV) delete window.__controlsTest;
     };
   }, []);
 
@@ -160,8 +266,10 @@ export function FightView({
     if (inputRef.current.queue.length < 3) inputRef.current.queue.push(act);
   }
 
-  function hold(key: "left" | "right" | "jump" | "dash", value: boolean) {
-    inputRef.current[key] = value;
+  function pressMove(action: MoveKey, pointerId: number, down: boolean) {
+    if (down) pointersRef.current.set(pointerId, action);
+    else pointersRef.current.delete(pointerId);
+    syncRef.current();
   }
 
   function togglePause() {
@@ -169,10 +277,10 @@ export function FightView({
     if (!fight || fight.phase !== "combat") return;
     pausedRef.current = !pausedRef.current;
     setPaused(pausedRef.current);
-    inputRef.current.left = false;
-    inputRef.current.right = false;
-    inputRef.current.jump = false;
-    inputRef.current.dash = false;
+    pointersRef.current.clear();
+    keyRef.current = blankHeld();
+    injectRef.current = blankHeld();
+    syncRef.current();
   }
 
   function leave() {
@@ -186,7 +294,9 @@ export function FightView({
   void tick;
   const techName = fight?.playerTech.name ?? "Technique";
   const ce = Math.round(fight?.ce ?? save.ce);
-  const techMode = ce >= 30;
+  const raging = (fight?.rageT ?? 0) > 0;
+  const rageCd = fight?.rageCd ?? 0;
+  const techMode = raging || ce >= 30;
   const php = fight ? Math.max(0, Math.ceil(fight.player.hp)) : 0;
   const pmax = fight?.player.maxHp ?? 1;
   const ehp = fight ? Math.max(0, Math.ceil(fight.enemy.hp)) : 0;
@@ -194,7 +304,7 @@ export function FightView({
   const phase = fight?.phase ?? "combat";
 
   return (
-    <div className="flex h-dvh flex-col gap-2 overflow-hidden px-3 py-3">
+    <div className="fight-root flex h-dvh flex-col gap-2 overflow-hidden px-3 py-3">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="kicker truncate">{fight?.enemy.title || "Encounter"}</p>
@@ -238,7 +348,7 @@ export function FightView({
         {paused ? (
           <Overlay
             title="Paused"
-            body="The law waits. Dash through red chalk arcs."
+            body="The law waits. Dodge through red chalk arcs."
             primary="Resume"
             onPrimary={togglePause}
             secondary="Flee"
@@ -285,22 +395,23 @@ export function FightView({
           <div className="mb-1 flex justify-between text-xs text-dust">
             <span>Vitality {php}</span>
             <span>
-              CE {ce}% · threshold 30
+              {raging ? `CE ∞ · rage ${fight!.rageT.toFixed(1)}s` : rageCd > 0 ? `CE ${ce}% · rage ${rageCd.toFixed(1)}s` : `CE ${ce}% · threshold 30`}
             </span>
           </div>
           <Bar value={php / pmax} tone="chalk" />
           <div className="relative mt-1">
-            <Bar value={ce / 100} tone="cursed" />
+            <Bar value={raging ? 1 : ce / 100} tone="cursed" />
             <span className="pointer-events-none absolute top-0 bottom-0 w-px bg-seal" style={{ left: "30%" }} />
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Hold label="Left" onHold={(v) => hold("left", v)} />
-          <Hold label="Right" onHold={(v) => hold("right", v)} />
-          <Hold label="Jump" onHold={(v) => hold("jump", v)} />
-          <Hold label="Dash" onHold={(v) => hold("dash", v)} />
-        </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 gap-2 landscape:grid-cols-[auto_1fr]">
+          <div className="grid grid-cols-2 gap-2">
+            <Move label="Back" hint="A" action="back" onPress={pressMove} />
+            <Move label="Forward" hint="D" action="forward" onPress={pressMove} />
+            <Move label="Jump" hint="W" action="jump" onPress={pressMove} />
+            <Move label="Dodge" hint="Shift" action="dodge" onPress={pressMove} />
+          </div>
+          <div className="flex flex-wrap gap-2">
           <Act label="Weapon" hint="J" onClick={() => push("m1")} />
           <Act label="Heavy" hint={techMode ? "locked" : cd(fight, "heavy")} disabled={techMode} onClick={() => push("heavy")} />
           <Act label="Special" hint={techMode ? "locked" : cd(fight, "special")} disabled={techMode} onClick={() => push("special")} />
@@ -327,9 +438,10 @@ export function FightView({
             disabled={ce < 20}
             onClick={() => push("rmt")}
           />
+          </div>
         </div>
-        <p className="hidden text-xs text-dust md:block">
-          A D move · W jump · Shift dash · J weapon · K heavy · L special · U I techniques · O domain · R reverse · 1–9 declare
+        <p className="text-xs text-dust">
+          Forward closes on the foe. Back steps away. Dodge bursts forward. A kill refills cursed energy. At 1 vitality, rage gives infinite cursed energy for 15s. If rage is cooling down, that fall kills you.
         </p>
       </section>
     </div>
@@ -389,20 +501,36 @@ function Act({
   );
 }
 
-function Hold({ label, onHold }: { label: string; onHold: (v: boolean) => void }) {
+function Move({
+  label,
+  hint,
+  action,
+  onPress,
+}: {
+  label: string;
+  hint: string;
+  action: MoveKey;
+  onPress: (action: MoveKey, pointerId: number, down: boolean) => void;
+}) {
   return (
     <button
       type="button"
-      className="btn fight-btn"
+      className="btn move-btn"
+      aria-label={label}
       onPointerDown={(e) => {
         e.preventDefault();
-        onHold(true);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* synthetic or unsupported capture still tracks pointerup on window */
+        }
+        onPress(action, e.pointerId, true);
       }}
-      onPointerUp={() => onHold(false)}
-      onPointerLeave={() => onHold(false)}
-      onPointerCancel={() => onHold(false)}
+      onPointerUp={(e) => onPress(action, e.pointerId, false)}
+      onPointerCancel={(e) => onPress(action, e.pointerId, false)}
     >
-      {label}
+      <span className="block text-sm">{label}</span>
+      <span className="block text-xs text-dust">{hint}</span>
     </button>
   );
 }

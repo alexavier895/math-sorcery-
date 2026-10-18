@@ -641,7 +641,7 @@ function Brief({
         <p className="kicker">The law you will meet</p>
         <p className="mt-2 text-sm">{law}</p>
       </section>
-      <p className="mt-3 text-sm text-dust">Dash the red chalk arc. Hold forward and use the weapon until a technique is worth the energy.</p>
+      <p className="mt-3 text-sm text-dust">Dodge through the red chalk arc. Forward closes distance. Back opens it. The weapon still answers while you move.</p>
       <button type="button" className="btn btn-primary mt-4" onClick={onStart}>
         Begin in {zoneName}
       </button>

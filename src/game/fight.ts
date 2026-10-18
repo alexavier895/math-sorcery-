@@ -233,6 +233,8 @@ export type Fight = {
   buffer: string | null;
   bufferT: number;
   logNote: string;
+  rageT: number;
+  rageCd: number;
 };
 
 export type InputState = {
@@ -467,6 +469,8 @@ export function createFight(opts: {
     buffer: null,
     bufferT: 0,
     logNote: "",
+    rageT: 0,
+    rageCd: 0,
   };
   fight.atk.heavy.windup = 0.28;
   fight.atk.heavy.recover = 0.34;
@@ -665,6 +669,7 @@ function applyHit(fight: Fight, hit: RawHit): void {
   fight.trauma = Math.min(1, fight.trauma + Math.min(0.55, dmg / 90));
   if (hit.source !== "imag") fight.hitstop = dmg > 24 ? 0.055 : 0.03;
   sfx(hit.source === "heavy" ? "heavy" : "hit");
+  holdTheLine(fight, target);
   if (target.hp <= 0) target.hp = 0;
   checkEnd(fight);
 }
@@ -981,6 +986,52 @@ function bossMod(fight: Fight, hit: RawHit, dmg: number): { dmg: number; note: s
   return { dmg, note, heal, cancel: false };
 }
 
+function holdTheLine(fight: Fight, target: Fighter): void {
+  if (target.side !== "player" || target.hp > 1) return;
+  if (fight.rageT > 0) {
+    target.hp = 1;
+    return;
+  }
+  if (fight.rageCd <= 0 && fight.phase === "combat") {
+    target.hp = 1;
+    awakenRage(fight);
+    return;
+  }
+  target.hp = 0;
+}
+
+function awakenRage(fight: Fight): void {
+  fight.rageT = 15;
+  fight.ce = 100;
+  fight.banner = "RAGE";
+  fight.bannerT = 1.8;
+  fight.modeFlash = "INFINITE CURSED ENERGY";
+  fight.modeFlashT = 1.8;
+  floater(fight, fight.player.x, fight.player.y - 168, "RAGE", "#d64545");
+  burst(fight, fight.player.x, fight.player.y - 80, "#d64545", 22, 160);
+  sfx("awaken");
+}
+
+function payCe(fight: Fight, cost: number): boolean {
+  if (fight.rageT > 0) return true;
+  if (fight.ce < cost) return false;
+  fight.ce -= cost;
+  return true;
+}
+
+function tickRage(fight: Fight, dt: number): void {
+  if (fight.rageT > 0) {
+    fight.rageT = Math.max(0, fight.rageT - dt);
+    fight.ce = 100;
+    if (fight.rageT === 0) {
+      fight.rageCd = 15;
+      fight.banner = "RAGE FADES";
+      fight.bannerT = 1.3;
+      floater(fight, fight.player.x, fight.player.y - 168, "RAGE FADES", "#a39b82");
+    }
+  } else if (fight.rageCd > 0) fight.rageCd = Math.max(0, fight.rageCd - dt);
+}
+
 function checkEnd(fight: Fight): void {
   if (fight.phase !== "combat") return;
   if (fight.player.hp <= 0) {
@@ -998,6 +1049,8 @@ function checkEnd(fight: Fight): void {
     fight.resolveT = 0.8;
     if (fight.enemy.boss) fight.bossKilled = true;
     else fight.spiritKills += 1;
+    fight.ce = 100;
+    floater(fight, fight.player.x, fight.player.y - 168, "CE 100%", "#d64545");
     if (fight.axiomThisWave) {
       fight.axiomEver = true;
       if (!fight.absorbedIds.includes(fight.currentId)) fight.absorbedIds.push(fight.currentId);
@@ -1656,8 +1709,7 @@ function tryAction(fight: Fight, act: string): void {
     if (!tech) return floater(fight, p.x, p.y - 150, "NEED 30% CE", "#d64545");
     if (p.silenceT > 0) return floater(fight, p.x, p.y - 150, "SILENCED", "#d64545");
     const cost = act === "a1" ? 14 : 24;
-    if (fight.cd[act]! > 0 || fight.ce < cost) return;
-    fight.ce -= cost;
+    if (fight.cd[act]! > 0 || !payCe(fight, cost)) return;
     begin(p, act === "a1" ? fight.atk.a1 : fight.atk.a2);
     fight.cd[act] = act === "a1" ? 3.3 : 6.2;
     fight.m1 = 0;
@@ -1667,8 +1719,7 @@ function tryAction(fight: Fight, act: string): void {
     if (!tech) return floater(fight, p.x, p.y - 150, "NEED 30% CE", "#d64545");
     if (p.silenceT > 0) return floater(fight, p.x, p.y - 150, "SILENCED", "#d64545");
     if (fight.usedDomain) return floater(fight, p.x, p.y - 150, "DOMAIN SPENT", "#a39b82");
-    if (fight.ce < 40) return floater(fight, p.x, p.y - 150, "NEED 40% CE", "#d64545");
-    fight.ce -= 40;
+    if (!payCe(fight, 40)) return floater(fight, p.x, p.y - 150, "NEED 40% CE", "#d64545");
     fight.usedDomain = true;
     begin(p, fight.atk.domain);
     fight.m1 = 0;
@@ -1687,15 +1738,15 @@ function begin(fighter: Fighter, attack: AttackDef): void {
 function castRmt(fight: Fight): void {
   const p = fight.player;
   if (fight.cd.rmt > 0 || p.hp <= 0) return;
-  if (fight.ce < 20) {
+  if (fight.rageT <= 0 && fight.ce < 20) {
     floater(fight, p.x, p.y - 150, "NEED 20% CE", "#d64545");
     return;
   }
-  const ce = fight.ce;
+  const ce = fight.rageT > 0 ? 100 : fight.ce;
   const cost = Math.round(ce * 0.45);
   const pct = 0.2 + 0.2 * (ce / 100);
   const heal = p.maxHp * pct;
-  fight.ce = Math.max(0, ce - cost);
+  if (fight.rageT <= 0) fight.ce = Math.max(0, ce - cost);
   p.hp = Math.min(p.maxHp, p.hp + heal);
   fight.cd.rmt = 14;
   floater(fight, p.x, p.y - 140, `+${Math.round(heal)}`, "#2fcaa8");
@@ -1963,6 +2014,7 @@ export function stepFight(fight: Fight, input: InputState, dt: number): void {
     return;
   }
   tickPresent(fight, dt);
+  if (fight.phase === "combat" || fight.phase === "break" || fight.phase === "resolving") tickRage(fight, dt);
   if (fight.bossKind === "irrational" || fight.law?.id === "pi") {
     fight.piT += dt;
     if (fight.piT > 0.5) {

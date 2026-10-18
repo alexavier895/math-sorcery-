@@ -78,7 +78,7 @@ export function drawFight(ctx: CanvasRenderingContext2D, fight: Fight, shake: bo
   ctx.globalAlpha = 1;
   if (fight.bannerT > 0) {
     ctx.globalAlpha = Math.min(1, fight.bannerT);
-    ctx.fillStyle = CHALK;
+    ctx.fillStyle = fight.banner.startsWith("RAGE") ? "#d64545" : CHALK;
     ctx.font = "680 42px Fraunces, serif";
     ctx.fillText(fight.banner, VW / 2, 150);
     ctx.globalAlpha = 1;
@@ -478,6 +478,13 @@ function drawFighter(ctx: CanvasRenderingContext2D, f: Fighter, fight: Fight): v
   ctx.translate(f.x + f.facing * lunge, f.y);
   ctx.scale(f.facing * sx, sy);
 
+  if (f.side === "player" && fight.rageT > 0) {
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(214,69,69,0.9)";
+    ctx.lineWidth = 3;
+    ctx.arc(0, -78, 78, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   if (f.side === "player" && fight.mode === "tech") {
     ctx.beginPath();
     ctx.strokeStyle = "rgba(47,202,168,0.45)";
